@@ -167,10 +167,6 @@ class FlinxGarageCoordinator(DataUpdateCoordinator):
             return True
 
         if self._ble_connecting:
-            for _ in range(50):
-                await asyncio.sleep(0.1)
-                if self.is_ble_connected:
-                    return True
             return False
 
         self._ble_connecting = True
@@ -181,15 +177,9 @@ class FlinxGarageCoordinator(DataUpdateCoordinator):
             ):
                 if service_info.name and service_info.name.startswith(BLE_NAME_PREFIX):
                     ble_device = service_info.device
-                    _LOGGER.debug(
-                        "Found BLE device %s (%s)",
-                        service_info.name,
-                        ble_device.address,
-                    )
                     break
 
             if ble_device is None:
-                _LOGGER.debug("No %s* BLE device in range", BLE_NAME_PREFIX)
                 return False
 
             self._ble_client = await establish_connection(
@@ -199,39 +189,34 @@ class FlinxGarageCoordinator(DataUpdateCoordinator):
                 disconnected_callback=self._on_ble_disconnect,
                 max_attempts=2,
             )
-            # Ensure GATT services are resolved before subscribing
             if not self._ble_client.services:
                 await self._ble_client.get_services()
             await self._ble_client.start_notify(BLE_NOTIFY_CHAR, self._ble_notification)
             await self._ble_client.start_notify(BLE_NOTIFY_CHAR2, self._ble_notification)
 
             self.is_ble_connected = True
-            _LOGGER.debug("BLE connected")
+            _LOGGER.debug("BLE connected to %s", ble_device.address)
             return True
 
-        except BleakError as err:
+        except (BleakError, Exception) as err:  # noqa: BLE001
             _LOGGER.debug("BLE connection failed: %s", err)
             return False
         finally:
             self._ble_connecting = False
 
     def _on_ble_disconnect(self, client: BleakClient) -> None:
-        _LOGGER.debug("BLE disconnected")
+        _LOGGER.debug("BLE disconnected — will reconnect in 10s")
         self.is_ble_connected = False
         self._ble_client = None
-        # Reconnect immediately in the background
-        self.hass.async_create_task(self._ensure_ble_connected())
+        # Reconnect after a delay to avoid churn with the BLE proxy
+        self.hass.loop.call_later(10, lambda: self.hass.async_create_task(
+            self._ensure_ble_connected()
+        ))
 
     async def _send_ble_command(self, ble_cmd_id: int) -> bool:
-        """Send a command over BLE. Tries to connect with a short timeout."""
-        # If not connected, give BLE a few seconds to connect before giving up
+        """Send a command over BLE if already connected."""
         if not self._ble_client or not self._ble_client.is_connected:
-            try:
-                await asyncio.wait_for(self._ensure_ble_connected(), timeout=5.0)
-            except asyncio.TimeoutError:
-                return False
-            if not self._ble_client or not self._ble_client.is_connected:
-                return False
+            return False
         dev_key = bytes.fromhex(self._dev_key)
         async with self._command_lock:
             try:
