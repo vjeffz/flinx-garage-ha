@@ -27,7 +27,7 @@ from .const import (
     API_BASE_URL,
     API_VERSION,
     ATTR_DOOR_POSITION,
-    ATTR_LED_STATE,
+    ATTR_LED_ACTUAL,
     ATTR_OPERATED_CYCLES,
     BLE_NAME_PREFIX,
     BLE_NOTIFY_CHAR,
@@ -117,9 +117,10 @@ class FlinxGarageCoordinator(DataUpdateCoordinator):
             self.door_position = pos
             changed = True
 
-        led = attrs.get(ATTR_LED_STATE)
-        if led is not None:
-            new_led = bool(led)
+        led_raw = attrs.get(ATTR_LED_ACTUAL)
+        if led_raw is not None:
+            # 0xf0 = LED on, 0xf1 = LED off
+            new_led = led_raw == 0xF0
             if new_led != self.led_state:
                 self.led_state = new_led
                 changed = True
@@ -196,6 +197,7 @@ class FlinxGarageCoordinator(DataUpdateCoordinator):
                 ble_device,
                 ble_device.name or "flinx",
                 disconnected_callback=self._on_ble_disconnect,
+                max_attempts=2,
             )
             # Ensure GATT services are resolved before subscribing
             if not self._ble_client.services:
@@ -217,11 +219,19 @@ class FlinxGarageCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("BLE disconnected")
         self.is_ble_connected = False
         self._ble_client = None
+        # Reconnect immediately in the background
+        self.hass.async_create_task(self._ensure_ble_connected())
 
     async def _send_ble_command(self, ble_cmd_id: int) -> bool:
-        """Send a command over BLE. Only attempts if already connected."""
+        """Send a command over BLE. Tries to connect with a short timeout."""
+        # If not connected, give BLE a few seconds to connect before giving up
         if not self._ble_client or not self._ble_client.is_connected:
-            return False
+            try:
+                await asyncio.wait_for(self._ensure_ble_connected(), timeout=5.0)
+            except asyncio.TimeoutError:
+                return False
+            if not self._ble_client or not self._ble_client.is_connected:
+                return False
         dev_key = bytes.fromhex(self._dev_key)
         async with self._command_lock:
             try:
@@ -398,11 +408,10 @@ class FlinxGarageCoordinator(DataUpdateCoordinator):
                 self.door_position = value
             elif code == ATTR_OPERATED_CYCLES:
                 self.operated_cycles = value
-            elif code == ATTR_LED_STATE:
-                # Only update from API if BLE hasn't set it optimistically — the
-                # LED attribute in the API response sometimes lags BLE writes.
+            elif code == ATTR_LED_ACTUAL:
+                # 0xf0 = on, 0xf1 = off (only update if not already set by command)
                 if self.led_state is None:
-                    self.led_state = bool(value)
+                    self.led_state = value == 0xF0
         self.firmware_version = info.get("firmwareVersion")
         self.is_online = info.get("onlineState") == 1
 

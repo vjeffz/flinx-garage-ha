@@ -36,10 +36,11 @@ ATTR_DOOR_CONTROL = 10001       # Door control state
 ATTR_LED_TIMER = 10002
 ATTR_AUTO_CLOSE_DELAY = 10003
 ATTR_AUTO_CLOSE_ENABLED = 10004
-ATTR_LED_STATE = 10005          # LED state (0=off, 1=on) — real-time via MQTT
+ATTR_LED_ENABLED = 10005        # LED feature enabled (always 1, NOT actual light state)
 ATTR_OPERATED_CYCLES = 10006    # 2-byte cumulative counter
 ATTR_MOTOR_BASELINE = 10010     # 2-byte motor force baseline
 ATTR_DOOR_POSITION = 10012      # 0-100% door position — PRIMARY state
+ATTR_LED_ACTUAL = 10013         # Actual LED state: 0xf0=on, 0xf1=off
 ATTR_DEVICE_ID = 10014          # 8-byte device ID (informational)
 
 # Known 2-byte attrs (vs default 1-byte)
