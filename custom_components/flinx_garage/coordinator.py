@@ -263,7 +263,10 @@ class FlinxGarageCoordinator(DataUpdateCoordinator):
         return ok
 
     async def _send_command(
-        self, ble_cmd_id: int, cloud_control_ident: int, target_position: int | None
+        self,
+        ble_cmd_id: int,
+        cloud_control_ident: int,
+        target_position: int | None = None,
     ) -> bool:
         """Send a command via BLE first; fall back to cloud if BLE unavailable."""
         if await self._send_ble_command(ble_cmd_id):
