@@ -159,10 +159,21 @@ class FlinxGarageCover(CoordinatorEntity[FlinxGarageCoordinator], CoverEntity):
         }
 
     async def async_open_cover(self, **kwargs: Any) -> None:
-        await self.coordinator.async_door_open()
+        if await self.coordinator.async_door_open():
+            self._direction = 1
+            self._last_position_ts = time.monotonic()
+            self._schedule_direction_reset()
+            self.async_write_ha_state()
 
     async def async_close_cover(self, **kwargs: Any) -> None:
-        await self.coordinator.async_door_close()
+        if await self.coordinator.async_door_close():
+            self._direction = -1
+            self._last_position_ts = time.monotonic()
+            self._schedule_direction_reset()
+            self.async_write_ha_state()
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
-        await self.coordinator.async_door_stop()
+        if await self.coordinator.async_door_stop():
+            self._direction = 0
+            self._cancel_direction_reset()
+            self.async_write_ha_state()
